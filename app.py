@@ -3,69 +3,49 @@ import json
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-from dotenv import load_dotenv
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from retriever import retrieve_assessments
 from prompts import SYSTEM_PROMPT
+import os
+from dotenv import load_dotenv
 
-# -----------------------------
-# LOAD ENV
-# -----------------------------
 load_dotenv()
+api_key = os.getenv("GOOGLE_API_KEY")
+
+
+# Gemini model
+llm = ChatGoogleGenerativeAI(
+    model="gemini-3.1-flash-lite",
+    google_api_key=api_key,
+    temperature=0.3
+)
 
 app = FastAPI()
 
 # -----------------------------
-# GLOBAL VARIABLES (IMPORTANT FIX)
+# Request Schema
 # -----------------------------
-llm = None
 
-# -----------------------------
-# INITIALIZE MODEL SAFELY
-# -----------------------------
-@app.on_event("startup")
-def startup_event():
-    global llm
-
-    api_key = os.getenv("GOOGLE_API_KEY")
-
-    if not api_key:
-        print("❌ GOOGLE_API_KEY missing")
-        return
-
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-3.1-flash-lite",
-        google_api_key=api_key,
-        temperature=0.3
-    )
-
-    print("✅ LLM Loaded Successfully")
-
-
-# -----------------------------
-# REQUEST SCHEMAS
-# -----------------------------
 class Message(BaseModel):
     role: str
     content: str
 
-
 class ChatRequest(BaseModel):
     messages: list[Message]
 
+# -----------------------------
+# Health Endpoint
+# -----------------------------
 
-# -----------------------------
-# HEALTH CHECK
-# -----------------------------
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+# -----------------------------
+# Helper Function
+# -----------------------------
 
-# -----------------------------
-# HELPER FUNCTION
-# -----------------------------
 def is_vague_query(text):
 
     vague_words = [
@@ -86,21 +66,12 @@ def is_vague_query(text):
 
     return False
 
+# -----------------------------
+# Chat Endpoint
+# -----------------------------
 
-# -----------------------------
-# CHAT ENDPOINT
-# -----------------------------
 @app.post("/chat")
 def chat(request: ChatRequest):
-
-    global llm
-
-    if llm is None:
-        return {
-            "reply": "Model not initialized. Check server logs.",
-            "recommendations": [],
-            "end_of_conversation": False
-        }
 
     messages = request.messages
 
@@ -111,58 +82,51 @@ def chat(request: ChatRequest):
             latest_user_message = msg.content
             break
 
-    # -------------------------
-    # CLARIFICATION LOGIC
-    # -------------------------
+    # Clarification handling
     if is_vague_query(latest_user_message):
+
         return {
             "reply": "Can you specify the role, experience level, and whether you need technical, cognitive, or personality assessments?",
             "recommendations": [],
             "end_of_conversation": False
         }
 
-    # -------------------------
-    # CONTEXT BUILDING
-    # -------------------------
+    # Build conversation context
     conversation_text = "\n".join([
         f"{m.role}: {m.content}"
         for m in messages
     ])
 
-    # -------------------------
-    # RETRIEVAL
-    # -------------------------
+    # Retrieve documents
     docs = retrieve_assessments(conversation_text)
 
     retrieved_context = "\n\n".join([
-        d.page_content for d in docs
+        d.page_content
+        for d in docs
     ])
 
-    # -------------------------
-    # FINAL PROMPT
-    # -------------------------
+    # Final prompt
     final_prompt = f"""
-{SYSTEM_PROMPT}
+    {SYSTEM_PROMPT}
 
-Conversation:
-{conversation_text}
+    Conversation:
+    {conversation_text}
 
-Retrieved SHL Assessments:
-{retrieved_context}
+    Retrieved SHL Assessments:
+    {retrieved_context}
 
-Generate:
-1. Conversational reply
-2. Recommended assessments
-"""
+    Generate:
+    1. Conversational reply
+    2. Recommended assessments
+    """
 
     response = llm.invoke(final_prompt)
 
-    # -------------------------
-    # BUILD RESPONSE
-    # -------------------------
+    # Build recommendations
     recommendations = []
 
     for d in docs[:5]:
+
         recommendations.append({
             "name": d.metadata.get("name"),
             "url": d.metadata.get("url"),
