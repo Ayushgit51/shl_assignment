@@ -3,7 +3,7 @@ services:
     name: shl-chatbot
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port 10000
+    startCommand: uvicorn app:app --host 0.0.0.0 --port 8000
     envVars:
       - key: GOOGLE_API_KEY
         sync: false
