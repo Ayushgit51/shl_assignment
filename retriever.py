@@ -1,16 +1,22 @@
+from langchain_community.vectorstores import FAISS
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
+embedding_model = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+)
+
+vectorstore = FAISS.load_local(
+    "faiss_index",
+    embedding_model,
+    allow_dangerous_deserialization=True
+)
+
+retriever = vectorstore.as_retriever(
+    search_kwargs={"k": 10}
+)
+
 def retrieve_assessments(query):
-    from langchain_community.vectorstores import FAISS
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
-    import os
 
-    embeddings = GoogleGenerativeAIEmbeddings(
-        google_api_key=os.getenv("GOOGLE_API_KEY")
-    )
+    docs = retriever.invoke(query)
 
-    vectorstore = FAISS.load_local(
-        "faiss_index",
-        embeddings,
-        allow_dangerous_deserialization=True
-    )
-
-    return vectorstore.similarity_search(query)
+    return docs
